@@ -218,6 +218,8 @@ while [ "$rc" != 0 ] && [ "$attempt" -lt "$CAP_RETRIES" ] && [ -n "$sid" ] \
   [ -n "$model" ] && rargs+=(-m "$model")
   [ -n "$effort" ] && rargs+=(-c "model_reasoning_effort=\"$effort\"")
   [ "$IS_WIN" = 1 ] && rargs+=(-c 'windows.sandbox="unelevated"')
+  # 续跑同样要放行对讲钩子（信任哈希对不上），否则续跑后工人收不到口信
+  [ "$channel" = 1 ] && rargs+=(--dangerously-bypass-hook-trust)
   rargs+=(-o "$last")
   "$CODEX_BIN" "${rargs[@]}" "上一轮被服务端容量错误打断。从被打断处接着做完原派工单,交付格式照旧;已做完的不重做。" > "$rlog" 2>&1 < /dev/null
   rc=$?

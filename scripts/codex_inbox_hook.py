@@ -119,15 +119,18 @@ def scan(registry: str, ledger_ch: dict, now_ts: float) -> tuple:
                 continue
             rows = read_rows(outbox)
             seen = set()
+            answered = set()
             for r in rows:
                 if r.get("kind") == "seen":
                     seen.add(r.get("of"))
+                elif r.get("kind") == "answer":
+                    answered.add(r.get("of"))
             next_due = 0.0
             for r in rows:
                 kind, rid = r.get("kind"), r.get("id")
                 if not rid:
                     continue
-                if kind == "ask" and not r.get("answer"):
+                if kind == "ask" and not r.get("answer") and rid not in answered:
                     stamp = ids.get(rid)
                     if stamp is None:
                         ids[rid] = [now_ts, now_ts]

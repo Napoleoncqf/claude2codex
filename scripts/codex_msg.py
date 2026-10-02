@@ -134,10 +134,68 @@ def append_jsonl(path: Path, row: dict) -> None:
         out.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def rewrite_jsonl(path: Path, rows: list) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-    tmp.replace(path)
+def answers_of(rows: list) -> dict:
+    """outbox 里的答复：追加行 {"kind":"answer","of":<提问id>}（兼容旧版直接写在 ask 行里的 answer 字段）。
+
+    答复只追加、不改写 outbox —— 工人随时可能往同一个文件追加新行，改写会吃掉它刚写的那行。
+    """
+    out = {}
+    for r in rows:
+        if r.get("kind") == "answer" and r.get("of"):
+            out[r["of"]] = r
+        elif r.get("kind") == "ask" and r.get("answer") and r.get("id"):
+            out.setdefault(r["id"], {"answer": r["answer"], "answered_at": r.get("answered_at")})
+    return out
+
+
+def read_ids_of(rows: list) -> set:
+    """inbox 里已送达的口信 id：追加行 {"kind":"read","of":<id>}（兼容旧版 read_at 字段）。"""
+    done = {r.get("of") for r in rows if r.get("kind") == "read"}
+    done.update(r.get("id") for r in rows if r.get("read_at"))
+    return done
+
+
+def pending_inbox(rows: list) -> list:
+    done = read_ids_of(rows)
+    return [r for r in rows if r.get("kind") != "read" and r.get("id") and r["id"] not in done]
+
+
+class file_lock:
+    """跨进程的简易互斥（O_EXCL 锁文件），只用来保护 registry.json 这种读改写。
+
+    拿不到（超时 / 异常）就放行并继续：锁只是降低冲突概率，不能反过来卡死派单。
+    """
+
+    def __init__(self, target: Path, timeout: float = 10.0):
+        self.path = Path(str(target) + ".lock")
+        self.timeout = timeout
+        self.held = False
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.time() + self.timeout
+        while True:
+            try:
+                os.close(os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                self.held = True
+                return self
+            except FileExistsError:
+                try:                                   # 持锁进程崩了留下的死锁：超时后强拆
+                    if time.time() - self.path.stat().st_mtime > self.timeout:
+                        self.path.unlink(missing_ok=True)
+                        continue
+                except OSError:
+                    pass
+                if time.time() >= deadline:
+                    return self
+                time.sleep(0.05)
+            except OSError:
+                return self
+
+    def __exit__(self, *exc):
+        if self.held:
+            self.path.unlink(missing_ok=True)
+        return False
 
 
 # ——————————————————————————— 频道定位 ———————————————————————————
@@ -157,9 +215,12 @@ def register(channel: str, workdir: Path) -> Path:
     chdir.mkdir(parents=True, exist_ok=True)
     (chdir / "live").write_text(now(), encoding="utf-8")
     REGISTRY.parent.mkdir(parents=True, exist_ok=True)
-    reg = registry()
-    reg[channel] = {"dir": str(chdir), "workdir": str(Path(workdir).resolve()), "opened": now()}
-    REGISTRY.write_text(json.dumps(reg, ensure_ascii=False, indent=1), encoding="utf-8")
+    with file_lock(REGISTRY):                      # 并行派单：读改写必须互斥，否则后写的覆盖先写的登记
+        reg = registry()
+        reg[channel] = {"dir": str(chdir), "workdir": str(Path(workdir).resolve()), "opened": now()}
+        tmp = REGISTRY.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(reg, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(REGISTRY)
     return chdir
 
 
@@ -303,7 +364,7 @@ def hook() -> int:
     inbox = chdir / "inbox.jsonl"
     state_file = chdir / "state.json"
     rows = read_jsonl(inbox)
-    pending = [r for r in rows if not r.get("read_at")]
+    pending = pending_inbox(rows)
     held = False
     if state_file.exists():
         try:
@@ -320,9 +381,8 @@ def hook() -> int:
     tool = tool_hint()
     ch = chdir.name
     if pending:
-        for r in pending:
-            r["read_at"] = now()
-        rewrite_jsonl(inbox, rows)
+        for r in pending:                          # 只追加已读标记，不改写 inbox（主线 send 可能正在追加）
+            append_jsonl(inbox, {"kind": "read", "of": r["id"], "at": now()})
         body = "\n\n".join(f"【主线口信 {r['at']}】{r['text']}" for r in pending)
         head = ("（这不是报错。你刚才那条命令被拦下了、没有执行 —— 拦它只是为了把下面"
                 "这条口信塞给你。读完照口信办；如果口信没让你改做法，就把刚才那条命令"
@@ -358,10 +418,10 @@ def worker_post(channel: str, text: str, kind: str, wait: float) -> int:
     deadline = time.time() + wait
     while time.time() < deadline:
         time.sleep(POLL_EVERY)
-        for r in read_jsonl(outbox):
-            if r.get("id") == entry["id"] and r.get("answer"):
-                print(f"\n【主线答复 {r.get('answered_at')}】\n{r['answer']}")
-                return 0
+        got = answers_of(read_jsonl(outbox)).get(entry["id"])
+        if got:
+            print(f"\n【主线答复 {got.get('answered_at')}】\n{got['answer']}")
+            return 0
     print("\n[codex_msg] 主线没回（超时）。按你自己的判断继续干，"
           "并在最终报告里单独写一行：问过什么、没等到答复、你先按什么假设做了。")
     return 0
@@ -376,9 +436,8 @@ def cmd_ls() -> int:
         return 0
     for ch, info in reg.items():
         d = Path(info["dir"])
-        pend_in = len([r for r in read_jsonl(d / "inbox.jsonl") if not r.get("read_at")])
-        pend_out = len([r for r in read_jsonl(d / "outbox.jsonl")
-                        if r.get("kind") == "ask" and not r.get("answer")])
+        pend_in = len(pending_inbox(read_jsonl(d / "inbox.jsonl")))
+        pend_out = len(unread(d / "outbox.jsonl")[0])
         alive = "活" if (d / "live").exists() else "关"
         print(f"{ch}  [{alive}]  未读口信 {pend_in}  待答提问 {pend_out}  {info['dir']}")
     return 0
@@ -403,7 +462,8 @@ def unread(outbox: Path) -> tuple[list, list]:
     """
     rows = read_jsonl(outbox)
     seen = {r.get("of") for r in rows if r.get("kind") == "seen"}
-    asks = [r for r in rows if r.get("kind") == "ask" and not r.get("answer")]
+    answered = answers_of(rows)
+    asks = [r for r in rows if r.get("kind") == "ask" and r.get("id") not in answered]
     says = [r for r in rows if r.get("kind") == "say" and r.get("id") not in seen]
     return asks, says
 
@@ -483,21 +543,18 @@ def cmd_wait(channel: str, timeout: float) -> int:
 def cmd_answer(channel: str, text: str, msg_id: str | None) -> int:
     d = resolve(channel)
     outbox = d / "outbox.jsonl"
-    rows = read_jsonl(outbox)
+    asks, _ = unread(outbox)
     target = None
-    for r in rows:
-        if r.get("kind") == "ask" and not r.get("answer"):
-            if msg_id is None or r.get("id") == msg_id:
-                target = r
-                if msg_id is None:
-                    continue        # 不指定就答最后一条待答的
-                break
+    for r in asks:
+        if msg_id is None or r.get("id") == msg_id:
+            target = r
+            if msg_id is None:
+                continue            # 不指定就答最后一条待答的
+            break
     if target is None:
         print("没有待答的提问")
         return 1
-    target["answer"] = text
-    target["answered_at"] = now()
-    rewrite_jsonl(outbox, rows)
+    append_jsonl(outbox, {"kind": "answer", "of": target["id"], "answer": text, "answered_at": now()})
     print(f"已答复 {target['id']}：工人最多 {int(POLL_EVERY)} 秒内收到")
     return 0
 
