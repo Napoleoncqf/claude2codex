@@ -56,6 +56,10 @@ Two tiny facts make this possible:
 2. **Files as mailboxes.** Each dispatch opens a *channel*, which is just a folder
    `<project>/.harness-tmp/codex-msg/<channel>/` with an `inbox.jsonl` (you → worker) and an
    `outbox.jsonl` (worker → you). No server, no database, nothing to keep running.
+   Both files are **append-only**: a reply is a new line `{"kind":"answer","of":<ask id>}` and a delivered
+   note is marked by `{"kind":"read","of":<note id>}`. Nothing is ever rewritten, so a line the other side
+   is appending at the same moment cannot be lost. (Files from older versions, using `answer` / `read_at`
+   fields, are still understood.) `registry.json` is updated under a lock file.
 
 ```
         you / Claude Code                                   Codex worker (headless)
@@ -63,7 +67,7 @@ Two tiny facts make this possible:
    │ codex_msg.py send  ────┼──▶ inbox.jsonl ──hook──▶│ next command is blocked once │
    │                        │                         │ and carries your note        │
    │ codex_msg.py wait  ◀───┼─── outbox.jsonl ◀───────┼─ codex_msg.py ask "A or B?"  │
-   │ codex_msg.py answer ───┼──▶ (answer field) ─────▶│ ...unblocks and continues    │
+   │ codex_msg.py answer ───┼──▶ (answer line) ──────▶│ ...unblocks and continues    │
    └────────────────────────┘                         └──────────────────────────────┘
 ```
 
@@ -276,6 +280,9 @@ only, no command text).
 - Don't commit `.harness-tmp/`, `.codex/hooks.json` from dispatches, or any `auth.json`.
 - Honest scope: notes are delivered only between commands; there is no way to interrupt a command that is
   already running.
+- **Running the tests** (standard library only, no install needed):
+  `python3 -m unittest discover -s tests`. They cover parallel channel registration, `answer` racing a
+  worker that is appending, and the hook marking notes as read without delivering them twice.
 
 ## 9. Uninstall
 

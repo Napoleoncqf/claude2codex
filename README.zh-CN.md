@@ -55,6 +55,9 @@ Claude Code 擅长规划和审查,Codex 擅长按明确的任务埋头干活、�
 2. **用文件当信箱。** 每次派单会开一条*频道*,就是一个文件夹
    `<项目>/.harness-tmp/codex-msg/<频道>/`,里面有 `inbox.jsonl`(你 → 工人)和
    `outbox.jsonl`(工人 → 你)。没有服务器、没有数据库,不需要常驻任何进程。
+   这两个文件都是**只追加**的:答复是新增一行 `{"kind":"answer","of":<提问id>}`,口信送达后追加
+   `{"kind":"read","of":<口信id>}` 标记已读,不会改写已有内容,所以对方恰好在追加的那一行不会丢。
+   (旧版本使用 `answer` / `read_at` 字段的文件仍然能识别。)`registry.json` 的更新会加锁文件保护。
 
 ```
         你 / Claude Code                                    Codex 工人(无头)
@@ -62,7 +65,7 @@ Claude Code 擅长规划和审查,Codex 擅长按明确的任务埋头干活、�
    │ codex_msg.py send  ────┼──▶ inbox.jsonl ──钩子──▶│ 下一条命令被拦一次,           │
    │                        │                         │ 理由里带着你的话              │
    │ codex_msg.py wait  ◀───┼─── outbox.jsonl ◀───────┼─ codex_msg.py ask "A 还是 B?" │
-   │ codex_msg.py answer ───┼──▶ (answer 字段) ──────▶│ ……解除阻塞,继续干活          │
+   │ codex_msg.py answer ───┼──▶ (answer 行) ────────▶│ ……解除阻塞,继续干活          │
    └────────────────────────┘                         └──────────────────────────────┘
 ```
 
@@ -269,6 +272,8 @@ bash $S/codex_task.sh --resume <session-id> -m <model> -p "有两个测试挂了
 - **把工人的产出当成不可信的。** 看 diff,跑测试。
 - 不要提交 `.harness-tmp/`、派单生成的 `.codex/hooks.json`,更不要提交任何 `auth.json`。
 - 如实说明能力边界:口信只在命令与命令之间送达,没法打断一条已经在执行的命令。
+- **运行测试**(只用标准库,不用安装依赖):`python3 -m unittest discover -s tests`。
+  覆盖三件事:并行登记频道、`answer` 与正在追加的工人同时写入、钩子把口信标记已读且不会重复投递。
 
 ## 9. 卸载
 
