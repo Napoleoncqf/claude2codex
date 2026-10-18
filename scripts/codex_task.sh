@@ -150,9 +150,13 @@ fi
 # （Windows 用 taskkill /T 连子进程一起收；绝不按进程名杀，你的交互客户端无恙）。
 WD_GRACE="${CODEX_TASK_WD_GRACE:-120}"
 
-# 对讲说明只拼给 Codex(频道号是本单一次性的,塞不进静态文件)。resume 不拼:原会话已经知道。
+# 对讲说明只拼给 Codex(频道号是本单一次性的,塞不进静态文件)。
+# resume 只补一行新频道号:用法原会话已经知道,但它记得的是上一单那条已关的频道。
 intercom=""
-if [ "$channel" = 1 ] && [ -z "$resume_id" ]; then
+if [ "$channel" = 1 ] && [ -n "$resume_id" ]; then
+  intercom="【这一轮的对讲频道换成 $CH(上一单的频道已关)。ask / say 用法同前:$MSGCMD ask $CH \"你的问题\"】
+"
+elif [ "$channel" = 1 ]; then
   intercom="【和主线对讲(本单频道 = $CH)】
 干活途中主线可以给你捎话:某条命令突然被拦下、理由开头写着「主线口信」,那不是报错 ——
 照口信办,如果口信没让你改做法,就把被拦的那条命令重跑一遍继续。

@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -325,6 +326,16 @@ HOW_TO_REPLY = (
 )
 
 
+REPLY_CALL = re.compile(r"codex_msg\.py[\"']?\s+(?:--root\s+\S+\s+)?(?:ask|say)\s")
+
+
+def is_reply_call(payload: dict) -> bool:
+    """这条命令是不是工人在回话（ask / say）。挂住期间只放行它，否则工人永远回不了话、也解不了挂。"""
+    if payload.get("tool_name") != "Bash":
+        return False
+    return bool(REPLY_CALL.search(str((payload.get("tool_input") or {}).get("command", ""))))
+
+
 def trace(payload: dict, chdir, raw: str = "") -> None:
     """钩子有没有真被叫起来、当时看见的是什么 —— 唯一的诊断口，出问题先看它。
 
@@ -375,6 +386,9 @@ def hook() -> int:
         # 快路：没信就回一个空决定。必须打印点什么 —— Codex 把「钩子没输出」记成
         # `hook: PreToolUse Failed`（fail-open 所以不拦活，但日志会被刷满）。
         # 空对象不携带任何决定，模型侧一个字节都不多花。
+        sys.stdout.write("{}")
+        return 0
+    if not pending and is_reply_call(payload):
         sys.stdout.write("{}")
         return 0
 

@@ -282,7 +282,8 @@ only, no command text).
   already running.
 - **Running the tests** (standard library only, no install needed):
   `python3 -m unittest discover -s tests`. They cover parallel channel registration, `answer` racing a
-  worker that is appending, and the hook marking notes as read without delivering them twice.
+  worker that is appending, the hook marking notes as read without delivering them twice, and a worker
+  held by `send --stop` still being able to reply with `ask` / `say`.
 
 ## 9. Uninstall
 

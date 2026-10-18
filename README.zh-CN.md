@@ -273,7 +273,7 @@ bash $S/codex_task.sh --resume <session-id> -m <model> -p "有两个测试挂了
 - 不要提交 `.harness-tmp/`、派单生成的 `.codex/hooks.json`,更不要提交任何 `auth.json`。
 - 如实说明能力边界:口信只在命令与命令之间送达,没法打断一条已经在执行的命令。
 - **运行测试**(只用标准库,不用安装依赖):`python3 -m unittest discover -s tests`。
-  覆盖三件事:并行登记频道、`answer` 与正在追加的工人同时写入、钩子把口信标记已读且不会重复投递。
+  覆盖四件事:并行登记频道、`answer` 与正在追加的工人同时写入、钩子把口信标记已读且不会重复投递、`send --stop` 挂住期间工人仍能 `ask` / `say` 回话。
 
 ## 9. 卸载
 
