@@ -194,6 +194,8 @@ def build() -> dict | None:
     payload = json.loads(raw or "{}")
     if not isinstance(payload, dict):
         return None
+    if os.environ.get("CLAUDE_MSG_CH"):
+        return None                                 # 这是 codex2claude 派出去的 Claude 工人，不是主线
     root = find_root(payload.get("cwd") or os.getcwd()) or find_root(os.getcwd())
     if not root:
         return None                                 # 不在 git 仓库里 = 不归本钩子管
