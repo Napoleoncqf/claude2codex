@@ -430,12 +430,16 @@ def worker_post(channel: str, text: str, kind: str, wait: float) -> int:
         return 0
     print(f"[codex_msg] 已送达主线（{entry['id']}），等答复中，最多 {int(wait)} 秒…")
     deadline = time.time() + wait
-    while time.time() < deadline:
-        time.sleep(POLL_EVERY)
+    while True:
         got = answers_of(read_jsonl(outbox)).get(entry["id"])
         if got:
             print(f"\n【主线答复 {got.get('answered_at')}】\n{got['answer']}")
             return 0
+        if time.time() >= deadline:
+            break
+        time.sleep(POLL_EVERY)
+    # 记下这条问题不再有人等：否则 wait 会一直报「工人原地等答复」，收工后还挡住退出码 20。
+    append_jsonl(outbox, {"kind": "expired", "of": entry["id"], "at": now()})
     print("\n[codex_msg] 主线没回（超时）。按你自己的判断继续干，"
           "并在最终报告里单独写一行：问过什么、没等到答复、你先按什么假设做了。")
     return 0
@@ -477,7 +481,9 @@ def unread(outbox: Path) -> tuple[list, list]:
     rows = read_jsonl(outbox)
     seen = {r.get("of") for r in rows if r.get("kind") == "seen"}
     answered = answers_of(rows)
-    asks = [r for r in rows if r.get("kind") == "ask" and r.get("id") not in answered]
+    expired = {r.get("of") for r in rows if r.get("kind") == "expired"}
+    asks = [r for r in rows
+            if r.get("kind") == "ask" and r.get("id") not in answered and r.get("id") not in expired]
     says = [r for r in rows if r.get("kind") == "say" and r.get("id") not in seen]
     return asks, says
 

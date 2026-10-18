@@ -64,7 +64,7 @@ while [ $# -gt 0 ]; do
     -p) prompt="$2"; shift 2;;
     -f) pfile="$2"; shift 2;;
     --resume) resume_id="$2"; shift 2;;
-    --help) sed -n '/^# Usage:/,/^# 铁则:/{ /^# 铁则:/d; s/^# \{0,1\}//; p; }' "${BASH_SOURCE[0]}"; exit 0;;
+    --help) sed -n '/^# Usage:/,/^# 铁则：/{ /^# 铁则：/d; s/^# \{0,1\}//; p; }' "${BASH_SOURCE[0]}"; exit 0;;
     --ro) sandbox="read-only"; shift;;
     --full) sandbox="danger-full-access"; shift;;
     --net) net=1; shift;;
@@ -93,7 +93,8 @@ if [ -n "$resume_id" ] && [ -z "$model" ]; then
   exit 2
 fi
 
-ts="$(date +%m%d-%H%M%S)"
+# 带上本进程号：同一秒并行起两单（默认 tag 都是 task）时，频道、日志、最终答复各归各的
+ts="$(date +%m%d-%H%M%S)-$$"
 log="$OUTDIR/$tag-$ts.log"
 last="$OUTDIR/$tag-$ts.last.md"
 
@@ -233,9 +234,9 @@ done
 
 if [ -n "$CH" ]; then
   "$PY" "$MSGTOOL" --root "$PROJECT" close "$CH" >/dev/null 2>&1
-  # 工人可能在收工前留了话(say / 没等到答复的 ask):带一行提醒,免得主线漏看。
-  pend="$("$PY" "$MSGTOOL" --root "$PROJECT" poll "$CH" 2>/dev/null | head -1)"
-  case "$pend" in ""|"（没有待答提问 / 新报告）") ;; *) echo "CHANNEL=$CH 有未读留言,跑 $MSGCMD poll $CH" >&2;; esac
+  # 工人可能在收工前留了话:原文整段交给主线。poll 列过的报告就算已读,只留一行提醒的话正文就丢了。
+  pend="$("$PY" "$MSGTOOL" --root "$PROJECT" poll "$CH" 2>/dev/null)"
+  case "$pend" in ""|"（没有待答提问 / 新报告）") ;; *) printf 'CHANNEL=%s 收工前的未读留言:\n%s\n' "$CH" "$pend" >&2;; esac
 fi
 
 echo "SESSION=${sid:-unknown} LOG=$log EXIT=$rc$wd_note" >&2

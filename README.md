@@ -57,8 +57,9 @@ Two tiny facts make this possible:
    `<project>/.harness-tmp/codex-msg/<channel>/` with an `inbox.jsonl` (you → worker) and an
    `outbox.jsonl` (worker → you). No server, no database, nothing to keep running.
    Both files are **append-only**: a reply is a new line `{"kind":"answer","of":<ask id>}` and a delivered
-   note is marked by `{"kind":"read","of":<note id>}`. Nothing is ever rewritten, so a line the other side
-   is appending at the same moment cannot be lost. (Files from older versions, using `answer` / `read_at`
+   note is marked by `{"kind":"read","of":<note id>}`. A question nobody answered before the worker gave up
+   waiting gets `{"kind":"expired","of":<ask id>}`, so `wait` stops reporting it as pending. Nothing is ever
+   rewritten, so a line the other side is appending at the same moment cannot be lost. (Files from older versions, using `answer` / `read_at`
    fields, are still understood.) `registry.json` is updated under a lock file.
 
 ```
@@ -184,16 +185,16 @@ WAKEUP=demo-1002-092405   ...
 **C. Talk to the worker while it runs:**
 
 ```bash
-M="python3 $S/codex_msg.py"
-$M send demo-1002-092405 "Also reject empty usernames"   # arrives before its next command
-$M wait demo-1002-092405                                  # blocks until the worker says something
+M="$S/codex_msg.py"
+python3 "$M" send demo-1002-092405 "Also reject empty usernames"   # arrives before its next command
+python3 "$M" wait demo-1002-092405                                  # blocks until the worker says something
 ```
 
 Suppose the worker asks "Should validation errors raise or return None?". `wait` exits with code `0` and
 prints the question, then:
 
 ```bash
-$M answer demo-1002-092405 "Raise ValueError"
+python3 "$M" answer demo-1002-092405 "Raise ValueError"
 ```
 
 The worker receives the answer within about 2 seconds and carries on — in the **same run**, no restart.
@@ -283,7 +284,9 @@ only, no command text).
 - **Running the tests** (standard library only, no install needed):
   `python3 -m unittest discover -s tests`. They cover parallel channel registration, `answer` racing a
   worker that is appending, the hook marking notes as read without delivering them twice, and a worker
-  held by `send --stop` still being able to reply with `ask` / `say`.
+  held by `send --stop` still being able to reply with `ask` / `say`, a timed-out `ask` no longer counting
+  as pending, and `codex_task.sh` itself (run against a fake `codex`): `--help`, same-second dispatches,
+  and notes left at close-out.
 
 ## 9. Uninstall
 

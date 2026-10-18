@@ -56,7 +56,8 @@ Claude Code 擅长规划和审查,Codex 擅长按明确的任务埋头干活、�
    `<项目>/.harness-tmp/codex-msg/<频道>/`,里面有 `inbox.jsonl`(你 → 工人)和
    `outbox.jsonl`(工人 → 你)。没有服务器、没有数据库,不需要常驻任何进程。
    这两个文件都是**只追加**的:答复是新增一行 `{"kind":"answer","of":<提问id>}`,口信送达后追加
-   `{"kind":"read","of":<口信id>}` 标记已读,不会改写已有内容,所以对方恰好在追加的那一行不会丢。
+   `{"kind":"read","of":<口信id>}` 标记已读;工人等答复超时、自己往下干时追加
+   `{"kind":"expired","of":<提问id>}`,`wait` 就不再把它当待答。不会改写已有内容,所以对方恰好在追加的那一行不会丢。
    (旧版本使用 `answer` / `read_at` 字段的文件仍然能识别。)`registry.json` 的更新会加锁文件保护。
 
 ```
@@ -181,15 +182,15 @@ WAKEUP=demo-1002-092405   ...
 **C. 工人干活时和它对话:**
 
 ```bash
-M="python3 $S/codex_msg.py"
-$M send demo-1002-092405 "另外,用户名为空也要拒绝"   # 在它下一条命令前送到
-$M wait demo-1002-092405                              # 阻塞,直到工人出声
+M="$S/codex_msg.py"
+python3 "$M" send demo-1002-092405 "另外,用户名为空也要拒绝"   # 在它下一条命令前送到
+python3 "$M" wait demo-1002-092405                              # 阻塞,直到工人出声
 ```
 
 假设工人问:"校验失败应该抛异常还是返回 None?"。`wait` 会以退出码 `0` 退出并打印这个问题,然后:
 
 ```bash
-$M answer demo-1002-092405 "抛 ValueError"
+python3 "$M" answer demo-1002-092405 "抛 ValueError"
 ```
 
 工人大约 2 秒内收到答复,在**同一次运行里**继续干,不用重启。
@@ -273,7 +274,8 @@ bash $S/codex_task.sh --resume <session-id> -m <model> -p "有两个测试挂了
 - 不要提交 `.harness-tmp/`、派单生成的 `.codex/hooks.json`,更不要提交任何 `auth.json`。
 - 如实说明能力边界:口信只在命令与命令之间送达,没法打断一条已经在执行的命令。
 - **运行测试**(只用标准库,不用安装依赖):`python3 -m unittest discover -s tests`。
-  覆盖四件事:并行登记频道、`answer` 与正在追加的工人同时写入、钩子把口信标记已读且不会重复投递、`send --stop` 挂住期间工人仍能 `ask` / `say` 回话。
+  覆盖:并行登记频道、`answer` 与正在追加的工人同时写入、钩子把口信标记已读且不会重复投递、`send --stop` 挂住期间工人仍能 `ask` / `say` 回话、
+  `ask` 超时后不再算待答,以及用假 `codex` 跑 `codex_task.sh` 本身(`--help`、同一秒派两单、收工前的留言)。
 
 ## 9. 卸载
 

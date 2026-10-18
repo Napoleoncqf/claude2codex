@@ -123,8 +123,8 @@ def scan(registry: str, ledger_ch: dict, now_ts: float) -> tuple:
             for r in rows:
                 if r.get("kind") == "seen":
                     seen.add(r.get("of"))
-                elif r.get("kind") == "answer":
-                    answered.add(r.get("of"))
+                elif r.get("kind") in ("answer", "expired"):
+                    answered.add(r.get("of"))     # expired = 工人等到超时已自己往下干，别再催主线
             next_due = 0.0
             for r in rows:
                 kind, rid = r.get("kind"), r.get("id")

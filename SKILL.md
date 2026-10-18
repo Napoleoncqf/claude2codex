@@ -29,11 +29,11 @@ bash $S/codex_task.sh --resume <session-id> -m <model> -p "测试挂两条：<�
 无头工人一开跑就没有输入口，所以每次派单自动开一条频道，stderr 打 `CHANNEL=<频道>` 和 `WAKEUP=<频道>`。
 
 ```bash
-M="python3 ~/.claude/skills/dispatch-codex/scripts/codex_msg.py"
-$M send <频道> "改主意了：数到 4 就停"   # 捎话：工人下一条命令前送到（加 --stop = 回话前把它挂住）
-$M poll <频道>                           # 看工人问了什么 / 报了什么
-$M answer <频道> "答复"                  # 答它：工人 2 秒内拿到，在同一个回合里接着干
-$M wait <频道>                           # 守候器：挂 Bash run_in_background，工人一出声就叫醒我
+M="$HOME/.claude/skills/dispatch-codex/scripts/codex_msg.py"   # 调用写 python3 "$M"：bash 与 zsh 都认
+python3 "$M" send <频道> "改主意了：数到 4 就停"   # 捎话：工人下一条命令前送到（加 --stop = 回话前把它挂住）
+python3 "$M" poll <频道>                           # 看工人问了什么 / 报了什么
+python3 "$M" answer <频道> "答复"                  # 答它：工人 2 秒内拿到，在同一个回合里接着干
+python3 "$M" wait <频道>                           # 守候器：挂 Bash run_in_background，工人一出声就叫醒我
 ```
 
 派完单后**顺手挂一个 `wait`**；它退出时看退出码：0 = 工人在等答复（赶紧 answer）/ 10 = 只有报告 /
