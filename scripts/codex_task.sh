@@ -113,8 +113,8 @@ fi
 
 args=(exec)
 if [ -n "$resume_id" ]; then
-  # resume 子命令不吃 -s,沙箱继承原会话
-  args+=(resume "$resume_id")
+  # resume 子命令不吃 -s,也不继承原会话的沙箱(会落回 ~/.codex 的默认值),只能用 -c 显式指定
+  args+=(resume "$resume_id" -c "sandbox_mode=\"$sandbox\"")
 else
   args+=(-s "$sandbox")
 fi
@@ -214,7 +214,7 @@ while [ "$rc" != 0 ] && [ "$attempt" -lt "$CAP_RETRIES" ] && [ -n "$sid" ] \
   echo "[codex_task] CAPACITY: 模型满载被掐断,${CAP_SLEEP}s 后第 $attempt/$CAP_RETRIES 次续跑 session $sid" >&2
   sleep "$CAP_SLEEP"
   rlog="$OUTDIR/$tag-$ts.retry$attempt.log"
-  rargs=(exec resume "$sid")
+  rargs=(exec resume "$sid" -c "sandbox_mode=\"$sandbox\"")
   [ -n "$model" ] && rargs+=(-m "$model")
   [ -n "$effort" ] && rargs+=(-c "model_reasoning_effort=\"$effort\"")
   [ "$IS_WIN" = 1 ] && rargs+=(-c 'windows.sandbox="unelevated"')
